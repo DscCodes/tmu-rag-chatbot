@@ -186,7 +186,7 @@ app.post('/api/chat', async (req, res) => {
       `=== CONTEXT ===\n${context}\n=== END CONTEXT ===`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama3-70b-8192',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message.trim() }
