@@ -1,12 +1,12 @@
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const path = require('path');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ─── Knowledge Base ───────────────────────────────────────────────────────────
 const knowledgeBase = [
@@ -185,16 +185,13 @@ app.post('/api/chat', async (req, res) => {
       `Be concise, accurate, and helpful.\n\n` +
       `=== CONTEXT ===\n${context}\n=== END CONTEXT ===`;
 
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      thinking: { type: 'adaptive' },
-      system: systemPrompt,
-      messages: [{ role: 'user', content: message.trim() }]
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: systemPrompt
     });
 
-    const answerBlock = response.content.find(b => b.type === 'text');
-    const answer = answerBlock ? answerBlock.text : 'No response generated.';
+    const result = await model.generateContent(message.trim());
+    const answer = result.response.text();
 
     res.json({
       answer,
