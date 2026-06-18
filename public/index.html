@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TMU AI Chatbot — RAG Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .chat-bubble-user {
+      background: linear-gradient(135deg, #1e3a8a, #1d4ed8);
+    }
+    .chat-bubble-bot {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+    #messages { scroll-behavior: smooth; }
+    .source-chip {
+      display: inline-block;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      border-radius: 9999px;
+      padding: 2px 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      margin: 2px;
+    }
+    .context-card {
+      background: #f0fdf4;
+      border-left: 3px solid #22c55e;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-top: 4px;
+    }
+    .typing-dot {
+      animation: blink 1.2s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink {
+      0%, 80%, 100% { opacity: 0.2; }
+      40% { opacity: 1; }
+    }
+    pre { white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-50 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-white shadow-sm border-b border-blue-100 sticky top-0 z-10">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full bg-blue-800 flex items-center justify-center flex-shrink-0">
+        <span class="text-white font-bold text-sm">TMU</span>
+      </div>
+      <div>
+        <h1 class="font-bold text-blue-900 text-lg leading-tight">Taipei Medical University Chatbot</h1>
+        <p class="text-xs text-blue-500">Powered by RAG (BM25 Retrieval + Claude Opus 4.8)</p>
+      </div>
+      <div class="ml-auto flex items-center gap-1.5">
+        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+        <span class="text-xs text-gray-500">Online</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6 flex gap-4">
+
+    <!-- Chat column -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col flex-1 overflow-hidden" style="max-height:calc(100vh - 160px);">
+
+        <!-- Messages -->
+        <div id="messages" class="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+          <!-- Welcome message -->
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center flex-shrink-0 mt-1">
+              <span class="text-white text-xs font-bold">T</span>
+            </div>
+            <div class="chat-bubble-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl shadow-sm">
+              <p class="text-gray-700 text-sm leading-relaxed">
+                Hello! I'm the TMU AI Chatbot. I can answer questions about <strong>Taipei Medical University</strong> — its colleges, affiliated hospitals, research, admissions, campus, and more.<br/><br/>
+                Ask me anything about TMU!
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input bar -->
+        <div class="border-t border-gray-100 px-4 py-3 bg-gray-50 rounded-b-2xl">
+          <div class="flex gap-2">
+            <input
+              id="userInput"
+              type="text"
+              placeholder="Ask about TMU colleges, hospitals, admission, research…"
+              class="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+              autocomplete="off"
+            />
+            <button
+              id="sendBtn"
+              onclick="sendMessage()"
+              class="bg-blue-800 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Send
+            </button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1.5 px-1">Try: "What hospitals does TMU operate?" · "Tell me about the College of Nursing" · "How do I apply to TMU?"</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAG context sidebar -->
+    <aside class="w-72 flex-shrink-0 hidden lg:flex flex-col gap-3">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex-1 overflow-hidden flex flex-col" style="max-height:calc(100vh - 160px);">
+        <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h8a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+          RAG — Retrieved Context
+        </h2>
+        <div id="contextPanel" class="overflow-y-auto flex-1 space-y-2 text-xs text-gray-500">
+          <p class="text-center text-gray-400 mt-8">Retrieved knowledge base chunks will appear here after your first question.</p>
+        </div>
+      </div>
+
+      <!-- Knowledge base info -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Knowledge Base</h2>
+        <p class="text-xs text-gray-500 mb-2">15 TMU document chunks indexed with BM25 retrieval.</p>
+        <div class="flex flex-wrap gap-1">
+          <span class="source-chip">Medicine</span>
+          <span class="source-chip">Dentistry</span>
+          <span class="source-chip">Pharmacy</span>
+          <span class="source-chip">Nursing</span>
+          <span class="source-chip">Public Health</span>
+          <span class="source-chip">Biomedical Eng.</span>
+          <span class="source-chip">Health Admin.</span>
+          <span class="source-chip">Hospitals</span>
+          <span class="source-chip">Research</span>
+          <span class="source-chip">International</span>
+          <span class="source-chip">Admission</span>
+          <span class="source-chip">Campus</span>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <script>
+    const input = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const messages = document.getElementById('messages');
+    const contextPanel = document.getElementById('contextPanel');
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    function appendMessage(role, content) {
+      const isUser = role === 'user';
+      const wrapper = document.createElement('div');
+      wrapper.className = `flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`;
+
+      const avatar = document.createElement('div');
+      avatar.className = `w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${isUser ? 'bg-indigo-600' : 'bg-blue-800'}`;
+      avatar.innerHTML = `<span class="text-white text-xs font-bold">${isUser ? 'You' : 'T'}</span>`;
+
+      const bubble = document.createElement('div');
+      if (isUser) {
+        bubble.className = 'chat-bubble-user text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-xl shadow-sm';
+        bubble.innerHTML = `<p class="text-sm leading-relaxed">${escapeHtml(content)}</p>`;
+      } else {
+        bubble.className = 'chat-bubble-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-xl shadow-sm';
+        bubble.innerHTML = `<p class="text-gray-700 text-sm leading-relaxed">${escapeHtml(content)}</p>`;
+      }
+
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(bubble);
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+      return bubble;
+    }
+
+    function appendTypingIndicator() {
+      const wrapper = document.createElement('div');
+      wrapper.id = 'typing';
+      wrapper.className = 'flex gap-3';
+      wrapper.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center flex-shrink-0 mt-1">
+          <span class="text-white text-xs font-bold">T</span>
+        </div>
+        <div class="chat-bubble-bot rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+          <div class="flex gap-1 items-center h-5">
+            <div class="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
+            <div class="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
+            <div class="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
+          </div>
+        </div>`;
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+      const t = document.getElementById('typing');
+      if (t) t.remove();
+    }
+
+    function updateContextPanel(retrieved) {
+      contextPanel.innerHTML = '';
+      if (!retrieved || retrieved.length === 0) {
+        contextPanel.innerHTML = '<p class="text-gray-400 text-center mt-4">No matching context retrieved.</p>';
+        return;
+      }
+      retrieved.forEach((item, i) => {
+        const card = document.createElement('div');
+        card.className = 'context-card';
+        card.innerHTML = `
+          <div class="flex items-center gap-1 mb-1">
+            <span class="text-green-600 font-bold">#${i+1}</span>
+            <span class="text-gray-700 font-medium">${escapeHtml(item.title)}</span>
+          </div>
+          <p class="text-gray-500 leading-relaxed">${escapeHtml(item.snippet)}</p>`;
+        contextPanel.appendChild(card);
+      });
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/\n/g, '<br>');
+    }
+
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      input.disabled = true;
+      sendBtn.disabled = true;
+
+      appendMessage('user', text);
+      appendTypingIndicator();
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+
+        const data = await res.json();
+        removeTypingIndicator();
+
+        if (!res.ok) {
+          appendMessage('bot', `Error: ${data.error || 'Something went wrong.'}`);
+          return;
+        }
+
+        // Add response bubble with source chips
+        const bubble = appendMessage('bot', data.answer);
+        if (data.sources && data.sources.length > 0) {
+          const sourceDiv = document.createElement('div');
+          sourceDiv.className = 'mt-2 pt-2 border-t border-gray-100';
+          sourceDiv.innerHTML = `<p class="text-xs text-gray-400 mb-1">Sources used:</p>` +
+            data.sources.map(s => `<span class="source-chip">${escapeHtml(s.title)}</span>`).join('');
+          bubble.appendChild(sourceDiv);
+        }
+
+        // Update sidebar RAG context
+        updateContextPanel(data.retrievedContext);
+
+      } catch (err) {
+        removeTypingIndicator();
+        appendMessage('bot', 'Network error. Please check your connection and try again.');
+      } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+  </script>
+</body>
+</html>
